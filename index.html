@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bracket Mundial 2026</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    margin: 0;
+    padding: 1.5rem;
+  }
+  .app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .app-header p {
+    margin: 0.25rem 0 0;
+    color: #94a3b8;
+    font-size: 0.85rem;
+  }
+  #reset-btn {
+    background: #1e293b;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+  }
+  #reset-btn:hover { background: #334155; }
+  #bracket {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2.5rem;
+    overflow-x: auto;
+    padding-bottom: 1rem;
+  }
+  .bracket-side {
+    display: flex;
+    gap: 2rem;
+  }
+  .bracket-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+  }
+  .round {
+    display: flex;
+    flex-direction: column;
+    min-width: 200px;
+  }
+  .round h2, #third-place-section h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94a3b8;
+    margin: 0 0 0.75rem;
+  }
+  .matches {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+    flex: 1;
+    gap: 1rem;
+  }
+  .match {
+    border: 1px solid #334155;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .team-slot {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+  }
+  .team-slot:last-child { border-bottom: none; }
+  .team-slot.empty {
+    color: #64748b;
+    font-style: italic;
+  }
+  .team-slot[draggable="true"] { cursor: grab; }
+  .team-slot[draggable="true"]:active { cursor: grabbing; }
+  .team-slot .flag {
+    width: 32px;
+    height: 24px;
+    object-fit: cover;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .team-slot.drag-over {
+    outline: 2px dashed #38bdf8;
+    outline-offset: -2px;
+  }
+  .team-slot.champion {
+    background: #422006;
+    border: 2px solid #fbbf24;
+  }
+  .round:not([data-round="R32"]) .match {
+    position: relative;
+  }
+  .bracket-side.left .round:not([data-round="R32"]) .match::before {
+    content: "";
+    position: absolute;
+    left: -1rem;
+    top: 50%;
+    width: 1rem;
+    height: 1px;
+    background: #334155;
+  }
+  .bracket-side.right .round:not([data-round="R32"]) .match::before {
+    content: "";
+    position: absolute;
+    right: -1rem;
+    top: 50%;
+    width: 1rem;
+    height: 1px;
+    background: #334155;
+  }
+  #third-place-section {
+    min-width: 200px;
+  }
+  #third-place-section h2 {
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div>
+    <h1>Predicciones Mundial 2026</h1>
+    <p>Arrastra la bandera del equipo que crees que gana cada cruce hacia el espacio de la siguiente ronda.</p>
+  </div>
+  <button id="reset-btn" type="button">Reiniciar predicciones</button>
+</header>
+
+<main id="bracket">
+  <section class="bracket-side left">
+    <div class="round" data-round="R32" data-half="left"><h2>Dieciseisavos</h2><div class="matches"></div></div>
+    <div class="round" data-round="R16" data-half="left"><h2>Octavos</h2><div class="matches"></div></div>
+    <div class="round" data-round="QF" data-half="left"><h2>Cuartos</h2><div class="matches"></div></div>
+    <div class="round" data-round="SF" data-half="left"><h2>Semifinal</h2><div class="matches"></div></div>
+  </section>
+
+  <section class="bracket-center">
+    <div class="round" data-round="FINAL"><h2>Final</h2><div class="matches"></div></div>
+    <div class="round" data-round="CHAMPION"><h2>Campeón</h2><div class="matches"></div></div>
+    <div id="third-place-section">
+      <h2>Tercer puesto</h2>
+      <div class="matches" data-round="3RD"></div>
+    </div>
+  </section>
+
+  <section class="bracket-side right">
+    <div class="round" data-round="SF" data-half="right"><h2>Semifinal</h2><div class="matches"></div></div>
+    <div class="round" data-round="QF" data-half="right"><h2>Cuartos</h2><div class="matches"></div></div>
+    <div class="round" data-round="R16" data-half="right"><h2>Octavos</h2><div class="matches"></div></div>
+    <div class="round" data-round="R32" data-half="right"><h2>Dieciseisavos</h2><div class="matches"></div></div>
+  </section>
+</main>
+
+<script>
+// ---- Datos de equipos (edita libremente esta lista para cambiar el bracket) ----
+// Orden y llaves tomados del bracket real de Dieciseisavos del Mundial 2026.
+// Cada par de entradas (0&1, 2&3, ...) forma un cruce de Dieciseisavos, y el
+// orden de los pares reproduce exactamente el árbol de cruces (izquierda y
+// derecha) mostrado en el bracket oficial.
+const TEAMS = [
+  // Izquierda, bloque superior
+  { name: 'Germany', code: 'de' },
+  { name: 'Paraguay', code: 'py' },
+  { name: 'France', code: 'fr' },
+  { name: 'Sweden', code: 'se' },
+  { name: 'South Africa', code: 'za' },
+  { name: 'Canada', code: 'ca' },
+  { name: 'Netherlands', code: 'nl' },
+  { name: 'Morocco', code: 'ma' },
+  // Izquierda, bloque inferior
+  { name: 'Portugal', code: 'pt' },
+  { name: 'Croatia', code: 'hr' },
+  { name: 'Spain', code: 'es' },
+  { name: 'Austria', code: 'at' },
+  { name: 'USA', code: 'us' },
+  { name: 'Bosnia and Herzegovina', code: 'ba' },
+  { name: 'Belgium', code: 'be' },
+  { name: 'Senegal', code: 'sn' },
+  // Derecha, bloque superior
+  { name: 'Brazil', code: 'br' },
+  { name: 'Japan', code: 'jp' },
+  { name: 'Ivory Coast', code: 'ci' },
+  { name: 'Norway', code: 'no' },
+  { name: 'Mexico', code: 'mx' },
+  { name: 'Ecuador', code: 'ec' },
+  { name: 'England', code: 'gb-eng' },
+  { name: 'DR Congo', code: 'cd' },
+  // Derecha, bloque inferior
+  { name: 'Argentina', code: 'ar' },
+  { name: 'Cape Verde', code: 'cv' },
+  { name: 'Australia', code: 'au' },
+  { name: 'Egypt', code: 'eg' },
+  { name: 'Switzerland', code: 'ch' },
+  { name: 'Algeria', code: 'dz' },
+  { name: 'Colombia', code: 'co' },
+  { name: 'Ghana', code: 'gh' },
+];
+
+// ---- Lógica del bracket ----
+const ROUNDS = ['R32', 'R16', 'QF', 'SF', 'FINAL'];
+const ROUND_MATCH_COUNTS = { R32: 16, R16: 8, QF: 4, SF: 2, FINAL: 1, CHAMPION: 1 };
+const STORAGE_KEY = 'fifa26-bracket-picks';
+
+let state = { teams: TEAMS, winners: {} };
+
+function getMatchTeams(matchId) {
+  if (matchId === 'CHAMPION-0') {
+    return { teamA: state.winners['FINAL-0'] || null, teamB: null };
+  }
+  if (matchId === '3RD-0') {
+    const sf0 = getMatchTeams('SF-0');
+    const sf0Winner = state.winners['SF-0'] || null;
+    const teamA = sf0Winner ? (sf0Winner === sf0.teamA ? sf0.teamB : sf0.teamA) : null;
+    const sf1 = getMatchTeams('SF-1');
+    const sf1Winner = state.winners['SF-1'] || null;
+    const teamB = sf1Winner ? (sf1Winner === sf1.teamA ? sf1.teamB : sf1.teamA) : null;
+    return { teamA: teamA || null, teamB: teamB || null };
+  }
+
+  const [round, idxStr] = matchId.split('-');
+  const idx = Number(idxStr);
+
+  if (round === 'R32') {
+    return { teamA: state.teams[idx * 2].code, teamB: state.teams[idx * 2 + 1].code };
+  }
+
+  const prevRound = ROUNDS[ROUNDS.indexOf(round) - 1];
+  const feedA = `${prevRound}-${idx * 2}`;
+  const feedB = `${prevRound}-${idx * 2 + 1}`;
+  return { teamA: state.winners[feedA] || null, teamB: state.winners[feedB] || null };
+}
+
+function getFeedsInto(matchId) {
+  if (matchId === 'CHAMPION-0' || matchId === '3RD-0') return null;
+  if (matchId === 'FINAL-0') return { matchId: 'CHAMPION-0', slot: 'A' };
+
+  const [round, idxStr] = matchId.split('-');
+  const idx = Number(idxStr);
+  if (round === 'SF') {
+    return { matchId: 'FINAL-0', slot: idx === 0 ? 'A' : 'B' };
+  }
+  const nextRound = ROUNDS[ROUNDS.indexOf(round) + 1];
+  return { matchId: `${nextRound}-${Math.floor(idx / 2)}`, slot: idx % 2 === 0 ? 'A' : 'B' };
+}
+
+function getThirdPlaceFeed(matchId) {
+  if (matchId === 'SF-0') return { matchId: '3RD-0', slot: 'A' };
+  if (matchId === 'SF-1') return { matchId: '3RD-0', slot: 'B' };
+  return null;
+}
+
+function cascadeClear(changedMatchId) {
+  const targets = [getFeedsInto(changedMatchId), getThirdPlaceFeed(changedMatchId)].filter(Boolean);
+  for (const target of targets) {
+    const currentWinner = state.winners[target.matchId];
+    if (!currentWinner) continue;
+    const teams = getMatchTeams(target.matchId);
+    if (currentWinner !== teams.teamA && currentWinner !== teams.teamB) {
+      delete state.winners[target.matchId];
+      cascadeClear(target.matchId);
+    }
+  }
+}
+
+function setWinner(matchId, teamCode) {
+  const teams = getMatchTeams(matchId);
+  if (teamCode !== teams.teamA && teamCode !== teams.teamB) return;
+  state.winners[matchId] = teamCode;
+  cascadeClear(matchId);
+}
+
+function resetAll() {
+  state.winners = {};
+}
+
+function persist() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.winners));
+}
+
+function loadPersisted() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (!saved) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(saved) || {};
+  } catch (err) {
+    parsed = {};
+  }
+  state.winners = {};
+  const allMatchIds = [
+    ...ROUNDS.filter((r) => r !== 'FINAL').flatMap((r) =>
+      Array.from({ length: ROUND_MATCH_COUNTS[r] }, (_, i) => `${r}-${i}`)
+    ),
+    '3RD-0',
+    'FINAL-0',
+    'CHAMPION-0',
+  ];
+  for (const matchId of allMatchIds) {
+    const teamCode = parsed[matchId];
+    if (teamCode) setWinner(matchId, teamCode);
+  }
+}
+
+// ---- Renderizado ----
+function findTeam(code) {
+  return state.teams.find((t) => t.code === code) || null;
+}
+
+function renderSlot(matchId, slot, code) {
+  const el = document.createElement('div');
+  el.className = 'team-slot' + (code ? '' : ' empty');
+  el.dataset.match = matchId;
+  el.dataset.slot = slot;
+
+  if (code) {
+    const team = findTeam(code);
+    el.draggable = true;
+    el.innerHTML = `
+      <img class="flag" src="https://flagcdn.com/${code}.svg" alt="${team ? team.name : code}">
+      <span class="team-name">${team ? team.name : code}</span>
+    `;
+    el.addEventListener('dragstart', (event) => {
+      event.dataTransfer.setData('text/plain', JSON.stringify({ matchId, teamCode: code }));
+    });
+  } else {
+    el.innerHTML = '<span class="placeholder">Por decidir</span>';
+  }
+
+  el.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    el.classList.add('drag-over');
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+  el.addEventListener('drop', (event) => {
+    event.preventDefault();
+    el.classList.remove('drag-over');
+    handleDrop(event, matchId, slot);
+  });
+
+  return el;
+}
+
+function handleDrop(event, targetMatchId, targetSlot) {
+  let payload;
+  try {
+    payload = JSON.parse(event.dataTransfer.getData('text/plain'));
+  } catch (err) {
+    return;
+  }
+  const { matchId: sourceMatchId, teamCode } = payload;
+  const winnerFeed = getFeedsInto(sourceMatchId);
+  const loserFeed = getThirdPlaceFeed(sourceMatchId);
+  const validTarget = [winnerFeed, loserFeed].find(
+    (feed) => feed && feed.matchId === targetMatchId && feed.slot === targetSlot
+  );
+  if (!validTarget) return;
+
+  setWinner(sourceMatchId, teamCode);
+  persist();
+  render();
+}
+
+// Round-of-32/16/QF/SF are split into a left half and a right half of match
+// indices, matching the two sides of the official bracket image.
+const HALF_RANGES = {
+  R32: { left: [0, 8], right: [8, 16] },
+  R16: { left: [0, 4], right: [4, 8] },
+  QF: { left: [0, 2], right: [2, 4] },
+  SF: { left: [0, 1], right: [1, 2] },
+};
+
+function renderRound(round, half) {
+  const selector = half
+    ? `.round[data-round="${round}"][data-half="${half}"] .matches`
+    : `.round[data-round="${round}"] .matches`;
+  const container = document.querySelector(selector);
+  if (!container) return;
+  container.innerHTML = '';
+
+  let indices;
+  if (half && HALF_RANGES[round]) {
+    const [start, end] = HALF_RANGES[round][half];
+    indices = Array.from({ length: end - start }, (_, i) => start + i);
+  } else {
+    indices = Array.from({ length: ROUND_MATCH_COUNTS[round] }, (_, i) => i);
+  }
+
+  for (const i of indices) {
+    const matchId = `${round}-${i}`;
+    const teams = getMatchTeams(matchId);
+    const matchEl = document.createElement('div');
+    matchEl.className = 'match';
+    matchEl.dataset.matchId = matchId;
+    matchEl.appendChild(renderSlot(matchId, 'A', teams.teamA));
+    if (round !== 'CHAMPION') {
+      matchEl.appendChild(renderSlot(matchId, 'B', teams.teamB));
+    }
+    container.appendChild(matchEl);
+  }
+}
+
+function renderThirdPlace() {
+  const container = document.querySelector('.matches[data-round="3RD"]');
+  if (!container) return;
+  container.innerHTML = '';
+  const teams = getMatchTeams('3RD-0');
+  const matchEl = document.createElement('div');
+  matchEl.className = 'match';
+  matchEl.dataset.matchId = '3RD-0';
+  matchEl.appendChild(renderSlot('3RD-0', 'A', teams.teamA));
+  matchEl.appendChild(renderSlot('3RD-0', 'B', teams.teamB));
+  container.appendChild(matchEl);
+}
+
+function render() {
+  for (const round of ['R32', 'R16', 'QF', 'SF']) {
+    renderRound(round, 'left');
+    renderRound(round, 'right');
+  }
+  renderRound('FINAL');
+  renderRound('CHAMPION');
+  renderThirdPlace();
+  document.querySelectorAll('.round[data-round="CHAMPION"] .team-slot').forEach((slotEl) => {
+    slotEl.classList.toggle('champion', !slotEl.classList.contains('empty'));
+  });
+}
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  resetAll();
+  persist();
+  render();
+});
+
+loadPersisted();
+render();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
