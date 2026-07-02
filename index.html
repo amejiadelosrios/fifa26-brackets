@@ -33,11 +33,28 @@
     flex-wrap: wrap;
     gap: 0.75rem;
   }
+  .app-header[hidden] { display: none; }
   .app-header p {
     margin: 0.25rem 0 0;
     color: #94a3b8;
     font-size: 0.85rem;
   }
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  #name-input {
+    background: #1e293b;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    width: 140px;
+  }
+  #share-btn,
   #reset-btn {
     background: #1e293b;
     color: #e2e8f0;
@@ -45,8 +62,30 @@
     border-radius: 6px;
     padding: 0.5rem 1rem;
     cursor: pointer;
+    font-size: 0.9rem;
   }
+  #share-btn:hover,
   #reset-btn:hover { background: #334155; }
+  #share-btn.copied { border-color: #38bdf8; color: #38bdf8; }
+  #viewing-banner:not([hidden]) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+  }
+  #viewing-banner p { margin: 0; }
+  #viewing-banner #back-to-mine {
+    color: #38bdf8;
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+  #viewing-banner #back-to-mine:hover { text-decoration: underline; }
   #bracket-viewport {
     width: 100%;
     overflow-x: auto;
@@ -176,17 +215,28 @@
   @media (max-width: 640px) {
     body { padding: 1rem; }
     .app-header { flex-direction: column; align-items: flex-start; }
+    .header-controls { width: 100%; }
+    #name-input { flex: 1; width: auto; }
   }
 </style>
 </head>
 <body>
-<header class="app-header">
+<header class="app-header" id="interactive-header">
   <div>
     <h1>Predicciones Mundial 2026</h1>
     <p>Arrastra la bandera del equipo que crees que gana cada cruce hacia el espacio de la siguiente ronda.</p>
   </div>
-  <button id="reset-btn" type="button">Reiniciar predicciones</button>
+  <div class="header-controls">
+    <input id="name-input" type="text" placeholder="Tu nombre" maxlength="40" autocomplete="name">
+    <button id="share-btn" type="button">Compartir mi predicción</button>
+    <button id="reset-btn" type="button">Reiniciar predicciones</button>
+  </div>
 </header>
+
+<div id="viewing-banner" hidden>
+  <p><strong id="viewing-name"></strong></p>
+  <a id="back-to-mine" href=".">Volver a mi predicción</a>
+</div>
 
 <div id="bracket-viewport">
 <main id="bracket">
@@ -264,8 +314,38 @@ const TEAMS = [
 const ROUNDS = ['R32', 'R16', 'QF', 'SF', 'FINAL'];
 const ROUND_MATCH_COUNTS = { R32: 16, R16: 8, QF: 4, SF: 2, FINAL: 1, CHAMPION: 1 };
 const STORAGE_KEY = 'fifa26-bracket-picks';
+const NAME_STORAGE_KEY = 'fifa26-bracket-name';
 
 let state = { teams: TEAMS, winners: {} };
+
+// ---- Compartir por link (sin backend: nombre + picks van codificados en la URL) ----
+function encodeShareState(name, winners) {
+  const json = JSON.stringify({ n: name, w: winners });
+  const b64 = btoa(unescape(encodeURIComponent(json)));
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeShareState(encoded) {
+  const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+  const json = decodeURIComponent(escape(atob(padded)));
+  const data = JSON.parse(json);
+  if (typeof data.n !== 'string' || typeof data.w !== 'object' || !data.w) {
+    throw new Error('malformed shared prediction');
+  }
+  return { name: data.n, winners: data.w };
+}
+
+const sharedParam = new URLSearchParams(location.search).get('p');
+let sharedPrediction = null;
+if (sharedParam) {
+  try {
+    sharedPrediction = decodeShareState(sharedParam);
+  } catch (err) {
+    sharedPrediction = null;
+  }
+}
+const READ_ONLY = sharedPrediction !== null;
 
 function getMatchTeams(matchId) {
   if (matchId === 'CHAMPION-0') {
@@ -341,15 +421,7 @@ function persist() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.winners));
 }
 
-function loadPersisted() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return;
-  let parsed;
-  try {
-    parsed = JSON.parse(saved) || {};
-  } catch (err) {
-    parsed = {};
-  }
+function applyWinnersSafely(winners) {
   state.winners = {};
   const allMatchIds = [
     ...ROUNDS.filter((r) => r !== 'FINAL').flatMap((r) =>
@@ -360,9 +432,21 @@ function loadPersisted() {
     'CHAMPION-0',
   ];
   for (const matchId of allMatchIds) {
-    const teamCode = parsed[matchId];
+    const teamCode = winners[matchId];
     if (teamCode) setWinner(matchId, teamCode);
   }
+}
+
+function loadPersisted() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (!saved) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(saved) || {};
+  } catch (err) {
+    parsed = {};
+  }
+  applyWinnersSafely(parsed);
 }
 
 // ---- Renderizado ----
@@ -372,7 +456,8 @@ function findTeam(code) {
 
 function renderSlot(matchId, slot, code) {
   const el = document.createElement('div');
-  el.className = 'team-slot' + (code ? ' draggable' : ' empty');
+  const draggableHere = Boolean(code) && !READ_ONLY;
+  el.className = 'team-slot' + (draggableHere ? ' draggable' : '') + (code ? '' : ' empty');
   el.dataset.match = matchId;
   el.dataset.slot = slot;
 
@@ -382,10 +467,12 @@ function renderSlot(matchId, slot, code) {
       <img class="flag" src="https://flagcdn.com/${code}.svg" alt="${team ? team.name : code}" draggable="false">
       <span class="team-name">${team ? team.name : code}</span>
     `;
-    el.addEventListener('pointerdown', (event) => {
-      if (event.pointerType === 'mouse' && event.button !== 0) return;
-      startDrag(event, matchId, code, el);
-    });
+    if (draggableHere) {
+      el.addEventListener('pointerdown', (event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        startDrag(event, matchId, code, el);
+      });
+    }
   } else {
     el.innerHTML = '<span class="placeholder">Por decidir</span>';
   }
@@ -528,11 +615,59 @@ function render() {
   });
 }
 
-document.getElementById('reset-btn').addEventListener('click', () => {
-  resetAll();
-  persist();
-  render();
-});
+function initInteractiveControls() {
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    resetAll();
+    persist();
+    render();
+  });
+
+  const nameInput = document.getElementById('name-input');
+  nameInput.value = localStorage.getItem(NAME_STORAGE_KEY) || '';
+  nameInput.addEventListener('input', () => {
+    localStorage.setItem(NAME_STORAGE_KEY, nameInput.value);
+  });
+
+  const shareBtn = document.getElementById('share-btn');
+  shareBtn.addEventListener('click', async () => {
+    const name = nameInput.value.trim();
+    if (!name) {
+      nameInput.focus();
+      return;
+    }
+    const encoded = encodeShareState(name, state.winners);
+    const url = `${location.origin}${location.pathname}?p=${encoded}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Mi predicción Mundial 2026', url });
+      } catch (err) {
+        // user cancelled the native share sheet - nothing to do
+      }
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      shareBtn.textContent = 'Link copiado';
+      shareBtn.classList.add('copied');
+      setTimeout(() => {
+        shareBtn.textContent = 'Compartir mi predicción';
+        shareBtn.classList.remove('copied');
+      }, 2000);
+    } catch (err) {
+      window.prompt('Copia este link para compartir:', url);
+    }
+  });
+}
+
+function initReadOnlyBanner() {
+  document.getElementById('interactive-header').hidden = true;
+  const banner = document.getElementById('viewing-banner');
+  banner.hidden = false;
+  document.getElementById('viewing-name').textContent = `Viendo la predicción de ${sharedPrediction.name}`;
+  document.getElementById('back-to-mine').href = location.pathname;
+}
 
 // Shrink the whole two-sided bracket tree (via CSS zoom) so it fits the
 // screen width in one view instead of requiring horizontal scrolling.
@@ -554,7 +689,13 @@ window.addEventListener('resize', () => {
 });
 window.addEventListener('orientationchange', () => setTimeout(fitBracketToScreen, 150));
 
-loadPersisted();
+if (READ_ONLY) {
+  applyWinnersSafely(sharedPrediction.winners);
+  initReadOnlyBanner();
+} else {
+  loadPersisted();
+  initInteractiveControls();
+}
 render();
 fitBracketToScreen();
 
