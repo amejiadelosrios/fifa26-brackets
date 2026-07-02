@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
 <title>Bracket Mundial 2026</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0f172a">
@@ -12,13 +12,19 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <style>
   * { box-sizing: border-box; }
+  html {
+    overscroll-behavior-y: contain;
+  }
   body {
     font-family: system-ui, sans-serif;
     background: #0f172a;
     color: #e2e8f0;
     margin: 0;
     padding: 1.5rem;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
+  img { -webkit-user-drag: none; user-drag: none; }
   .app-header {
     display: flex;
     align-items: center;
@@ -48,6 +54,7 @@
     gap: 2.5rem;
     overflow-x: auto;
     padding-bottom: 1rem;
+    -webkit-overflow-scrolling: touch;
   }
   .bracket-side {
     display: flex;
@@ -97,14 +104,22 @@
     color: #64748b;
     font-style: italic;
   }
-  .team-slot[draggable="true"] { cursor: grab; }
-  .team-slot[draggable="true"]:active { cursor: grabbing; }
+  .team-slot.draggable {
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .team-slot.draggable:active { cursor: grabbing; }
+  .team-slot.dragging-source { opacity: 0.35; }
   .team-slot .flag {
     width: 32px;
     height: 24px;
     object-fit: cover;
     border-radius: 2px;
     flex-shrink: 0;
+    pointer-events: none;
   }
   .team-slot.drag-over {
     outline: 2px dashed #38bdf8;
@@ -113,6 +128,17 @@
   .team-slot.champion {
     background: #422006;
     border: 2px solid #fbbf24;
+  }
+  .drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.9;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    background: #1e293b;
   }
   .round:not([data-round="R32"]) .match {
     position: relative;
@@ -140,6 +166,19 @@
   }
   #third-place-section h2 {
     text-align: center;
+  }
+
+  @media (max-width: 640px) {
+    body { padding: 1rem; }
+    .app-header { flex-direction: column; align-items: flex-start; }
+    #bracket { gap: 1.25rem; }
+    .bracket-side { gap: 1rem; }
+    .bracket-center { gap: 1rem; }
+    .round { min-width: 150px; }
+    #third-place-section { min-width: 150px; }
+    .team-slot { padding: 0.4rem 0.5rem; gap: 0.4rem; }
+    .team-slot .flag { width: 26px; height: 20px; }
+    .team-slot .team-name { font-size: 0.85rem; }
   }
 </style>
 </head>
@@ -334,56 +373,95 @@ function findTeam(code) {
 
 function renderSlot(matchId, slot, code) {
   const el = document.createElement('div');
-  el.className = 'team-slot' + (code ? '' : ' empty');
+  el.className = 'team-slot' + (code ? ' draggable' : ' empty');
   el.dataset.match = matchId;
   el.dataset.slot = slot;
 
   if (code) {
     const team = findTeam(code);
-    el.draggable = true;
     el.innerHTML = `
-      <img class="flag" src="https://flagcdn.com/${code}.svg" alt="${team ? team.name : code}">
+      <img class="flag" src="https://flagcdn.com/${code}.svg" alt="${team ? team.name : code}" draggable="false">
       <span class="team-name">${team ? team.name : code}</span>
     `;
-    el.addEventListener('dragstart', (event) => {
-      event.dataTransfer.setData('text/plain', JSON.stringify({ matchId, teamCode: code }));
+    el.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      startDrag(event, matchId, code, el);
     });
   } else {
     el.innerHTML = '<span class="placeholder">Por decidir</span>';
   }
 
-  el.addEventListener('dragover', (event) => {
-    event.preventDefault();
-    el.classList.add('drag-over');
-  });
-  el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
-  el.addEventListener('drop', (event) => {
-    event.preventDefault();
-    el.classList.remove('drag-over');
-    handleDrop(event, matchId, slot);
-  });
-
   return el;
 }
 
-function handleDrop(event, targetMatchId, targetSlot) {
-  let payload;
-  try {
-    payload = JSON.parse(event.dataTransfer.getData('text/plain'));
-  } catch (err) {
-    return;
-  }
-  const { matchId: sourceMatchId, teamCode } = payload;
+// Pointer-based drag & drop (works for mouse and touch alike, unlike the
+// HTML5 dragstart/dragover/drop API which touch browsers don't support).
+let activeDrag = null;
+
+function isValidTarget(sourceMatchId, targetEl) {
+  if (!targetEl) return null;
+  const targetMatchId = targetEl.dataset.match;
+  const targetSlot = targetEl.dataset.slot;
+  if (!targetMatchId || !targetSlot) return null;
   const winnerFeed = getFeedsInto(sourceMatchId);
   const loserFeed = getThirdPlaceFeed(sourceMatchId);
-  const validTarget = [winnerFeed, loserFeed].find(
+  const matches = [winnerFeed, loserFeed].some(
     (feed) => feed && feed.matchId === targetMatchId && feed.slot === targetSlot
   );
-  if (!validTarget) return;
+  return matches ? targetEl : null;
+}
 
-  setWinner(sourceMatchId, teamCode);
-  persist();
-  render();
+function moveGhost(ghost, x, y) {
+  ghost.style.left = `${x}px`;
+  ghost.style.top = `${y}px`;
+}
+
+function startDrag(pointerEvent, matchId, teamCode, sourceEl) {
+  pointerEvent.preventDefault();
+
+  const rect = sourceEl.getBoundingClientRect();
+  const ghost = sourceEl.cloneNode(true);
+  ghost.classList.add('drag-ghost');
+  ghost.classList.remove('draggable');
+  ghost.style.width = `${rect.width}px`;
+  document.body.appendChild(ghost);
+  moveGhost(ghost, pointerEvent.clientX, pointerEvent.clientY);
+
+  sourceEl.classList.add('dragging-source');
+  activeDrag = { sourceMatchId: matchId, teamCode, currentTargetEl: null };
+
+  function onMove(moveEvent) {
+    if (!activeDrag) return;
+    moveGhost(ghost, moveEvent.clientX, moveEvent.clientY);
+    const under = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+    const slotEl = under ? under.closest('.team-slot') : null;
+    const validTarget = isValidTarget(activeDrag.sourceMatchId, slotEl);
+    if (activeDrag.currentTargetEl && activeDrag.currentTargetEl !== validTarget) {
+      activeDrag.currentTargetEl.classList.remove('drag-over');
+    }
+    if (validTarget) validTarget.classList.add('drag-over');
+    activeDrag.currentTargetEl = validTarget || null;
+  }
+
+  function finish() {
+    if (!activeDrag) return;
+    if (activeDrag.currentTargetEl) {
+      activeDrag.currentTargetEl.classList.remove('drag-over');
+      setWinner(activeDrag.sourceMatchId, activeDrag.teamCode);
+      persist();
+    }
+    ghost.remove();
+    sourceEl.classList.remove('dragging-source');
+    activeDrag = null;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', finish);
+    window.removeEventListener('pointercancel', finish);
+    render();
+  }
+
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', finish);
+  window.addEventListener('pointercancel', finish);
 }
 
 // Round-of-32/16/QF/SF are split into a left half and a right half of match
