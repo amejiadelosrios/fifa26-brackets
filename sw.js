@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bracket-2026-v1';
+const CACHE_NAME = 'bracket-2026-v2';
 const APP_SHELL = [
   './',
   './index.html',
@@ -22,20 +22,20 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Network-first: while this app is actively changing, always prefer the
+// latest deployed version over whatever got cached on a previous visit.
+// Cache is only used as an offline fallback when the network fails.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response.ok && event.request.url.startsWith(self.location.origin)) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok && event.request.url.startsWith(self.location.origin)) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
